@@ -1,0 +1,230 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, message=FALSE}
+library(tidyverse)
+library(mgnet)
+```
+
+```{r, message=FALSE}
+mOTU <- readRDS("../data/R/mOTU.rds") %>%
+  filter_taxa(sum(abun) != 0)
+amr <- readRDS("../data/R/amr.rds") %>%
+  filter_taxa(sum(abun) != 0)
+```
+
+## Filtering mOTU
+
+```{r}
+mOTU <- mOTU %>%
+  mutate_taxa(
+    m_prevalence = sum(abun>0)  / length(abun),
+    m_log10_sum_taxa = log10(sum(abun)),
+    m_log10_max_rel = log10(max(rela)),
+    m_log10_mean_no_zero = log10(mean(abun[abun>0])),
+    m_log10_median_no_zero = log10(median(abun[abun>0])))
+```
+
+```{r, fig.width=8, fig.height=4}
+mOTU %>%
+  gather_taxa() %>%
+  select(taxa_id, starts_with("m_")) %>%
+  pivot_longer(-taxa_id, names_to = "measurments", values_to = "values") %>%
+  ggplot(aes(x = values)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "darkblue") +
+  facet_wrap(~measurments, scales = "free", ncol = 3) +
+  theme_bw()
+```
+
+```{r}
+mOTU_filt <- mOTU %>%
+  mutate_meta(sample_sum = sum(abun)) %>%
+  filter_taxa(m_prevalence >= .25 & m_log10_median_no_zero >= 0) %>%
+  mutate_meta(preserved_counts = sum(abun) / sample_sum) 
+```
+
+```{r, fig.width=5, fig.height=3}
+mOTU_filt %>%
+  gather_meta() %>%
+  ggplot(aes(x = preserved_counts)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "darkblue") + 
+  theme_bw()
+```
+
+```{r}
+mOTU_filt <- mOTU_filt %>%
+  filter_meta(preserved_counts >= .9) %>%
+  select_taxa(!starts_with("m_")) 
+```
+
+## Filtering amr
+
+```{r}
+rowSums(abun(amr)) %>% quantile(seq(0,1,.1)) %>% round(2)
+```
+
+```{r}
+amr_filt <- amr %>%
+  filter_meta(sum(abun) >= 15) %>%
+  mutate_meta(sample_sum = sum(abun))
+```
+
+```{r}
+amr_filt <- amr_filt %>%
+  mutate_taxa(
+    m_prevalence = sum(abun>0) / length(abun),
+    m_log10_sum_taxa = log10(sum(abun)),
+    m_log10_max_rel = log10(max(rela)),
+    m_log10_mean_no_zero = log10(mean(abun[abun>0])),
+    m_log10_median_no_zero = log10(median(abun[abun>0]))) 
+```
+
+```{r, fig.width=8, fig.height=4, warning=FALSE}
+amr_filt %>%
+  gather_taxa() %>%
+  select(taxa_id, starts_with("m_")) %>%
+  pivot_longer(-taxa_id, names_to = "measurments", values_to = "values") %>%
+  ggplot(aes(x = values)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "darkblue") +
+  facet_wrap(~measurments, scales = "free", ncol = 3) +
+  theme_bw()
+```
+
+```{r}
+amr_filt <- amr_filt %>%
+  filter_taxa(m_prevalence >= .25 & m_log10_median_no_zero >= -2) %>%
+  mutate_meta(preserved_counts = sum(abun) / sample_sum) 
+```
+
+```{r, fig.width=5, fig.height=3}
+amr_filt %>%
+  gather_meta() %>%
+  ggplot(aes(x = preserved_counts)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "darkblue") + 
+  theme_bw()
+```
+
+```{r}
+amr_filt <- amr_filt %>%
+  filter_meta(preserved_counts >= .8) %>%
+  select_taxa(!starts_with("m_")) 
+```
+
+
+### Get Only the filtered samples for both
+
+```{r}
+preserved_samples <- intersect(sample_id(mOTU_filt), sample_id(amr_filt))
+```
+
+```{r}
+mOTU_filt <- set_norm_CLR(mOTU_filt[preserved_samples, ])
+amr_filt <- set_norm_CLR(amr_filt[preserved_samples, ])
+```
+
+## Construct the network mOTU + amr (all acquired and functional)
+
+```{r}
+mOTU_amr_netw <- mgnet(
+  norm = cbind(norm(mOTU_filt), norm(amr_filt)),
+  meta = meta(mOTU_filt) %>% select(-preserved_counts),
+  taxa = bind_rows(taxa(mOTU_filt), taxa(amr_filt))
+)
+```
+
+```{r}
+spearman_mat <- cor(norm(mOTU_amr_netw), method = "spearman") %>%
+  as_tibble(rownames = "taxa_i") %>%
+  pivot_longer(-taxa_i, names_to = "taxa_j", values_to = "spearman") %>%
+  filter(taxa_i > taxa_j)
+```
+
+```{r, warning=FALSE}
+spearman_mat %>%
+  ggplot(aes(x = spearman)) +
+  geom_histogram(binwidth = .05, fill = "lightblue", color = "darkblue") +
+  theme_bw() +
+  xlim(-1.05, 1.05) 
+```
+
+```{r}
+mOTU_amr_netw <- mOTU_amr_netw %>%
+  constructCorrCLRNet(
+    cor_method = "spearman",
+    thresh_method = "absolute", 
+    thresh_value = 0.5) %>%
+  cluster_signed()
+mOTU_amr_netw
+```
+
+```{r}
+# Preserve only taxa belong to communities with at least 10 elements
+mOTU_amr_netw_filt <- mOTU_amr_netw %>%
+  filter_taxa(n() >= 10, .by = "comm_id") 
+```
+
+```{r}
+saveRDS(mOTU_amr_netw, "cache/gs_netw.rds")
+saveRDS(mOTU_amr_netw_filt, "cache/gs_netw_filt.rds")
+```
+
+
+## FILTERING PLOT
+
+```{r}
+p_depth_amr <- amr %>%
+  mutate_meta(sample_sum = sum(abun)) %>%
+  gather_meta() %>%
+  ggplot(aes(x = sample_sum)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "darkblue") +
+  theme_bw() +
+  theme(legend.position = "right") +
+  scale_x_log10() +
+  xlab("ARG Sample Depth") +
+  geom_vline(xintercept = 15, color = "red", linewidth = 2)
+p_depth_amr
+```
+
+```{r}
+p_bar_sample_removed <- mOTU %>%
+  gather_meta() %>%
+  filter(!sample_id %in% preserved_samples) %>%
+  group_by(Region, country_alt) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  ggplot(aes(x = country_alt, y = n, fill = Region)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  theme(legend.position = "top", axis.title.x = element_blank()) +
+  ylab("Sample Filtered")
+p_bar_sample_removed
+```
+
+```{r, fig.width=16, fig.height=8}
+png("../plots/filter_plot.png", width = 4800, height = 2400, res = 300)
+p_filter <- ggpubr::ggarrange(
+  p_depth_amr + theme(plot.margin = unit(c(5.5, 5.5, 85, 5.5), "pt")),
+  p_bar_sample_removed,
+  labels = c("a", "b"), common.legend = T
+)
+p_filter
+dev.off()
+
+pdf("../plots/filter_plot.pdf", width = 16, height = 8)
+p_filter
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+

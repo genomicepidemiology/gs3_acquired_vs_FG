@@ -1,0 +1,70 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, message=FALSE}
+library(tidyverse)
+library(mgnet)
+```
+
+```{r}
+mg <- readRDS("cache/gs_netw_filt_with_graphics.rds") %>%
+  filter_taxa(comm_id %in% c("1", "6"),
+              source == "mOTU")
+
+mOTU_abun_original <- abun(readRDS("../data/R/mOTU.rds"))
+abun(mg) <- mOTU_abun_original[sample_id(mg), taxa_id(mg)]
+```
+
+```{r, fig.width=10, fig.height=8}
+p <- mg %>%
+  # preserve only human associated communities 1 and 6
+  filter_taxa(comm_id %in% c("1", "6")) %>%
+  gather_mgnet() %>%
+  group_by(sample_id, comm_id) %>%
+  mutate(sum_abun_sample_comm = sum(abun)) %>%
+  ungroup() %>%
+  mutate(rela_comm = abun / sum_abun_sample_comm) %>%
+  group_by(sample_id, family_ncbi, phylum_ncbi, comm_id) %>%
+  summarise(rela_fam_comm = sum(rela_comm), .groups = "drop") %>%
+  filter(!is.na(family_ncbi)) %>%
+  mutate(phylum_ncbi = case_when(
+    family_ncbi == "Coriobacteriaceae" ~ "Actinomycetota",
+    TRUE ~ phylum_ncbi
+  )) %>%
+  ggplot(aes(x = family_ncbi, y = rela_fam_comm, fill = phylum_ncbi)) +
+  geom_jitter(aes(color = phylum_ncbi), width = 0.2, 
+              size = 1, alpha = 0.6, shape = 16,
+              show.legend = FALSE) +  
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + 
+  facet_wrap(~comm_id, nrow = 2) +
+  theme_bw() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    axis.title.x = element_blank(),
+    strip.text = element_text(size = 10)
+  ) +
+  labs(fill = "Phyla") +
+  ylab("Community Relative Abundance") +
+  guides(
+    fill = guide_legend(override.aes = list(alpha = 1))  
+  )
+```
+
+```{r}
+png(filename = "../plots/human_comm_composition.png",
+    width = 3000, height = 2400, res = 300)
+p
+dev.off()
+```
+
+```{r}
+pdf(file = "../plots/human_comm_composition.pdf", width = 10, height = 8)
+p
+dev.off()
+```
+
+
+

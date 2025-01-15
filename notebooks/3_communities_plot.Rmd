@@ -1,0 +1,280 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, message=FALSE}
+library(tidyverse)
+library(mgnet)
+library(ggraph)
+library(tidygraph)
+```
+
+```{r}
+mg <- readRDS("cache/gs_netw_filt_with_graphics.rds") %>%
+  mutate_taxa(meanCLR = mean(norm),
+              node_size = meanCLR - min(meanCLR),
+              node_size = node_size / max(node_size),
+              node_size = 3 + tan(node_size * atan(10)),
+              node_fill = color_nodes,
+              node_shape = if_else(type == "mOTU", 21, 23),
+              node_color = case_when(
+                        type == "mOTU" ~ "#838B83",
+                        type == "acquired" ~  "#8B0000",
+                        type == "functional" ~ "#008B45"
+                      ),
+              node_stroke = if_else(source == "mOTU", 1, 2),
+              node_text_value = if_else(source == "mOTU", taxa_id, name_extracted_amr),
+              node_text_color = case_when(
+                        type == "mOTU" ~ "black",
+                        type == "acquired" ~  "darkred",
+                        type == "functional" ~ "darkgreen")
+              ) %>% 
+  group_taxa(comm_id) %>%
+  select_link(weight > 0) %>%
+  mutate_netw(degree_comm_pos = degree(netw),
+              eig_comm_pos = eigen_centrality(netw)$vector) %>%
+  ungroup_taxa() %>% deselect_link() %>%
+  mutate_link(
+    scaled_weight = weight,
+    scaled_weight = if_else(scaled_weight > 0, scaled_weight, 0),
+    scaled_weight = scaled_weight / max(scaled_weight),
+    scaled_weight = if_else(scaled_weight > 0, .01 + ((scaled_weight - .5)/.5) * .99, 0),
+    scaled_trasparency = tan(scaled_weight * atan(.5)),
+    scaled_width = tan(scaled_weight * atan(1))
+  )
+```
+
+```{r}
+plot_comm <- function(mg){
+  
+  set.seed(42)
+  p <- netw(mg) %>%
+    ggraph(layout = layout_with_fr(., start.temp = 0)) +
+    geom_edge_link(aes(width = scaled_width, edge_alpha = scaled_trasparency,
+                       color = if_else(weight>0, "#1E90FF", "#DC143C")),
+                       show.legend = FALSE) +  
+    geom_node_point(aes(
+      size = node_size,
+      fill = node_fill,
+      color = node_color,
+      shape = node_shape,
+      stroke = node_stroke
+    )) +
+    scale_fill_identity() +
+    scale_color_identity() +
+    scale_shape_identity() +
+    scale_size_identity() +
+    scale_edge_color_identity() +
+    scale_edge_alpha_identity() +
+    scale_edge_width_identity() +
+    geom_node_text(aes(label = node_text_value, filter=highlight, color=node_text_color),
+                   repel = TRUE, fontface = "bold") +
+    theme_graph() + 
+    theme(legend.position = "none") 
+  
+  return(p)
+}
+```
+
+```{r}
+# For the populated communities is not possible to show the names of each entities 
+# and I had to remove some of names.
+p1 <- mg %>%
+  filter_taxa(comm_id == "1", degree_comm_pos >= 20) %>%
+  mutate_taxa(highlight = source == "amr" | eig_comm_pos >= .95 | 
+                meanCLR >= 4 | degree_comm_pos >= 150) %>%
+  plot_comm()
+
+png("intermediate/comm_1.png", width = 4200, height = 4200, res = 300)
+p1
+dev.off()
+```
+
+```{r}
+p2 <- mg %>%
+  filter_taxa(comm_id == "2", degree_comm_pos >= 2) %>%
+  mutate_taxa(highlight = source == "amr" | eig_comm_pos >= .75 | 
+                meanCLR >= 4 | degree_comm_pos >= 20) %>%
+  plot_comm()
+
+png("intermediate/comm_2.png", width = 4200, height = 4200, res = 300)
+p2
+dev.off()
+```
+
+```{r, fig.width=14, fig.height=14}
+p3 <- mg %>%
+  filter_taxa(comm_id == "3", degree_comm_pos >= 3) %>%
+  mutate_taxa(highlight = source == "amr" | eig_comm_pos >= .8 |
+                meanCLR >= 4 | degree_comm_pos >= 65) %>%
+  plot_comm()
+
+png("intermediate/comm_3.png", width = 4200, height = 4200, res = 300)
+p3
+dev.off()
+```
+
+```{r, fig.width=14, fig.height=14, warning=FALSE}
+p4 <- mg %>%
+  filter_taxa(comm_id == "4", degree_comm_pos >= 2) %>%
+  mutate_taxa(highlight = TRUE) %>%
+  plot_comm()
+
+png("intermediate/comm_4.png", width = 4200, height = 4200, res = 300)
+p4
+dev.off()
+```
+
+```{r, fig.width=14, fig.height=14}
+p5 <- mg %>%
+  filter_taxa(comm_id == "5", degree_comm_pos >= 2) %>%
+  mutate_taxa(highlight = source == "amr" | eig_comm_pos >= .8 | 
+                meanCLR >= 4, degree_comm_pos >= 10) %>%
+  plot_comm()
+
+png("intermediate/comm_5.png", width = 4200, height = 4200, res = 300)
+p5
+dev.off()
+```
+
+```{r, fig.width=14, fig.height=14}
+p6 <- mg %>%
+  filter_taxa(comm_id == "6", degree_comm_pos >= 2) %>%
+  mutate_taxa(highlight = TRUE) %>%
+  plot_comm()
+
+png("intermediate/comm_6.png", width = 4200, height = 4200, res = 300)
+p6
+dev.off()
+```
+
+
+```{r, fig.width=14, fig.height=14}
+p7 <- mg %>%
+  filter_taxa(comm_id == "7", degree_comm_pos >= 2) %>%
+  mutate_taxa(highlight = TRUE) %>%
+  plot_comm()
+
+png("intermediate/comm_7.png", width = 4200, height = 4200, res = 300)
+p7
+dev.off()
+```
+
+```{r, fig.width=14, fig.height=14}
+color_family <- gather_taxa(mg) %>%
+  select(family_fct, color_family) %>%
+  distinct() %>%
+  deframe() 
+
+color_amr <- gather_taxa(mg) %>%
+  select(class_amr_fct, color_class_amr) %>%
+  filter(!is.na(class_amr_fct)) %>%
+  distinct() %>%
+  deframe()
+names(color_amr) <- names(color_amr) %>%
+  str_remove_all("\\[") %>% str_remove_all("\\]") %>% str_remove_all("'") 
+
+png("intermediate/legends_community_plot.png", width = 4200, height = 4200, res = 300)
+plot.new()
+par(mar=c(0,0,0,0))
+
+legend(x = 0, y = .95, xjust = 0,
+       legend = tolower(names(color_family)), fill = color_family, title = "mOTU family", 
+       ncol = 1, bty = "n", cex = 1.75, title.adj = 0)
+
+legend(x = .5, y = .95, xjust = 0,
+       legend = names(color_amr), fill = color_amr, title = "ARG class", 
+       ncol = 1, bty = "n", cex = 1.75, title.adj = 0)
+
+legend(
+  x = .4, y = .25, xjust = 0, cex = 1.75,
+  legend = c("mOTUs","Acquired ARGs","FG ARGs"),
+  pch = c(1,5,5),
+  col = c("#838B83", "#8B0000", "#008B45"),
+  pt.cex = 2, bty = "n",
+  title = "Source", horiz = T,
+  lwd = 2, title.adj = 0
+)
+
+legend(
+  x = .4, y = 0.15, xjust = 0, cex = 1.75,
+  legend = c("","",""),
+  lty = c(1, 1),       
+  col = c(adjustcolor("#1E90FF", alpha.f = .5),
+          adjustcolor("#1E90FF", alpha.f = .75),
+          adjustcolor("#1E90FF", alpha.f = 1)),  
+  lwd = c(3, 6, 9),             
+  bty = "n",           
+  horiz = TRUE,
+  title = "Link Weights", title.adj = 0
+)
+
+legend(
+  x = 0.4, y = .05, xjust = 0, cex = 1.75,
+  x.intersp = c(1.5,2.5),
+  y.intersp = 1.75,
+  legend = c("", "", ""),
+  pt.cex = c(3,6,9),        
+  pch = 21,                     
+  pt.bg = "gray15",     
+  bty = "n",           
+  horiz = TRUE,
+  title = "Mean CLR", title.adj = 0
+)
+dev.off()
+```
+
+```{r, message=FALSE}
+library(ggpubr)
+library(ggplot2)
+library(grid)
+library(png)
+```
+
+
+```{r, fig.width=28, fig.height=56}
+plots_1 <- ggarrange(
+  as_ggplot(rasterGrob(readPNG("intermediate/comm_1.png"), interpolate = TRUE)),
+  as_ggplot(rasterGrob(readPNG("intermediate/comm_2.png"), interpolate = TRUE)),
+  as_ggplot(rasterGrob(readPNG("intermediate/comm_3.png"), interpolate = TRUE)),
+  as_ggplot(rasterGrob(readPNG("intermediate/comm_4.png"), interpolate = TRUE)),
+  nrow = 2, ncol = 2, font.label = list(size = 60), 
+  labels = c("a", "b", "c", "d"))
+  
+plots_2 <- ggarrange(
+  as_ggplot(rasterGrob(readPNG("intermediate/comm_5.png"), interpolate = TRUE)),
+  as_ggplot(rasterGrob(readPNG("intermediate/comm_6.png"), interpolate = TRUE)),
+  as_ggplot(rasterGrob(readPNG("intermediate/comm_7.png"), interpolate = TRUE)),
+  as_ggplot(rasterGrob(readPNG("intermediate/legends_community_plot.png"), interpolate = TRUE)),
+  nrow = 2, ncol = 2, font.label = list(size = 60),
+  labels = c("e", "f", "g", "")
+)
+```
+
+```{r}
+png(filename = "../plots/comm_A.png", width = 8400, height = 8400, res = 300)
+plots_1
+dev.off()
+
+pdf(file = "../plots/comm_A.pdf", width = 28, height = 28)
+plots_1
+dev.off()
+```
+
+```{r}
+png(filename = "../plots/comm_B.png", width = 8400, height = 8400, res = 300)
+plots_2
+dev.off()
+
+pdf(file = "../plots/comm_B.pdf", width = 28, height = 28)
+plots_2
+dev.off()
+```
+
+
+
+
+
+
+

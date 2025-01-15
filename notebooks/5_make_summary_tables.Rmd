@@ -1,0 +1,52 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, message=FALSE}
+library(tidyverse)
+library(mgnet)
+```
+
+```{r}
+mg <- readRDS("cache/gs_netw_filt.rds")
+```
+
+```{r}
+mg <- mg %>%
+  mutate_link(within_community = from(comm_id) == to(comm_id)) %>%
+  # Create some centrality measurments for the nodes
+  mutate_netw(degree = degree(netw)) %>%
+  select_link(weight > 0, within_community) %>%
+  mutate_netw(degree_pos_intra = degree(netw)) %>%
+  select_link(weight > 0, !within_community) %>%
+  mutate_netw(degree_pos_extra = degree(netw)) %>%
+  select_link(weight < 0, !within_community) %>%
+  mutate_netw(degree_neg_extra = degree(netw)) %>%
+  select_link(weight > 0) %>%
+  mutate_netw(eigen = eigen_centrality(netw)$vector) %>%
+  mutate_netw(eigen_comm = eigen_centrality(netw)$vector, group_taxa = "comm_id") %>%
+  deselect_link() %>%
+  mutate_taxa(clrMean = mean(norm))
+```
+
+```{r}
+mg <- mg %>%
+  mutate_link(
+    link_type = case_when(
+      both(type == "mOTU") ~ "mOTU-mOTU",
+      one(type == "mOTU") & one(type == "acquired") ~ "mOTU-acquired",
+      one(type == "mOTU") & one(type == "functional") ~ "mOTU-functional",
+      one(type == "acquired") & one(type == "functional") ~ "acquired-functional",
+      both(type == "acquired") ~ "acquired-acquired",
+      both(type == "functional") ~ "functional-functional"
+    ))
+```
+
+```{r}
+write_tsv(gather_taxa(mg), "../tables/info_nodes.tsv")
+write_tsv(gather_link(mg, .suffix = c("_from", "_to")), "../tables/info_links.tsv")
+```
+
+
+
