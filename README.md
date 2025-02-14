@@ -41,7 +41,7 @@ ggpmisc
 mgcv
 ```
 
-In the network analysis notebooks ([1_network_construction.Rmd](notebooks/1_network_construction.Rmd), [2_network_plot.Rmd](notebooks/2_network_plot.Rmd), [3_communities_plot.Rmd](notebooks/3_communities_plot.Rmd), [4_plot_community_human_composition.Rmd](notebooks/4_plot_community_human_composition.Rmd), and (5_make_summary_tables.Rmd)[notebooks/5_make_summary_tables.Rmd]), the following R packages was used:
+In the network analysis notebooks ([1_network_construction.Rmd](notebooks/1_network_construction.Rmd), [2_network_plot.Rmd](notebooks/2_network_plot.Rmd), [3_communities_plot.Rmd](notebooks/3_communities_plot.Rmd), [4_plot_community_human_composition.Rmd](notebooks/4_plot_community_human_composition.Rmd), and [5_make_summary_tables.Rmm](notebooks/5_make_summary_tables.Rmd)), the following R packages was used:
 ```
 tidyverse
 mgnet
