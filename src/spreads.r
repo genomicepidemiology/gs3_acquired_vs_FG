@@ -1,8 +1,11 @@
 library(dplyr)
 library(tidyr)
 
+
+# Calculate the distribution of ARGs across geographic areas
 process_spread <- function(data, geo_level, arg_level, group, res_class = 'All'){
 
+    # Filter by group and resistance class
     sel.data <- data[which(data$group == group),]
 
     if(res_class != 'All'){
@@ -11,6 +14,7 @@ process_spread <- function(data, geo_level, arg_level, group, res_class = 'All')
     if(any(dim(sel.data) == 0)){
         return(c())
     }
+    # Count presence of ARGs across geographic units
     spread <- sel.data %>% 
         select({{geo_level}}, {{arg_level}}) %>%
         table %>%
@@ -36,6 +40,7 @@ process_spread <- function(data, geo_level, arg_level, group, res_class = 'All')
     return(spread)
 }
 
+# Generate spread statistics across multiple groupings and resistance classes
 generate_spread <- function(dat1, dat2, geo_levels, resClasses, groups=c("ResFinder", "Functional"), arg_levels=c("gene", "variant")){
 
     spreads <- c()
@@ -44,6 +49,7 @@ generate_spread <- function(dat1, dat2, geo_levels, resClasses, groups=c("ResFin
             for(geo_level in geo_levels){
                 print(paste(group, arg_level, geo_level))
 
+                # Process 'All' resistance classes from dat1
                 spread.data <- process_spread(
                     data = dat1,
                     geo_level = geo_level,
@@ -53,6 +59,7 @@ generate_spread <- function(dat1, dat2, geo_levels, resClasses, groups=c("ResFin
 
                 spreads <- rbind(spreads, spread.data)
 
+                # Process specific resistance classes from dat2
                 for(resClass in resClasses){
                     spread.data <- process_spread(
                         data = dat2,
@@ -70,6 +77,7 @@ generate_spread <- function(dat1, dat2, geo_levels, resClasses, groups=c("ResFin
         }
     }
 
+    # Format factor levels for plotting or analysis
     spreads <- spreads %>%
         mutate(
             group = factor(group, level=groups),
@@ -79,34 +87,4 @@ generate_spread <- function(dat1, dat2, geo_levels, resClasses, groups=c("ResFin
         )
 
     return(spreads)
-}
-
-plot_spread <- function(spreadData, palette, x='numberAreas', y='n', fill='group', wrap="geo_level ~ arg_level", dodge_width = .5, title="", marker_size=1){
-
-    wrap_labels <- as.vector(str_split(wrap, " ~ ", simplify = T))
-
-    # Create a new data frame with dodged x positions
-    spreadData_dodged <- spreadData %>%
-        group_by(!!sym(fill)) %>%
-        mutate(
-            dodged_x = as.numeric(as.factor(!!sym(x))) + (as.numeric(as.factor(!!sym(fill))) - 1) * dodge_width
-        ) %>%
-        mutate(across(all_of(wrap_labels), str_to_title))
-    
-    dodge <- position_dodge(width = dodge_width)
-
-    p <- ggplot(spreadData_dodged, aes(x=dodged_x, y=!!sym(y), color=!!sym(fill))) +
-        geom_segment(aes(x=dodged_x, end=dodged_x, y=0, yend=!!sym(y)), alpha = .3) +
-        geom_point(size=marker_size, alpha = .75, position = dodge) +
-        scale_color_manual(values = palette) +
-        facet_wrap(wrap, scales="free", ncol=2) +
-        scale_y_log10() +
-        theme_minimal() +
-        labs(
-            y="log(Number of sequences with prevalence)",
-             x = "Number of Areas"
-        ) +
-        ggtitle(title)
-
-    return(p)
 }
