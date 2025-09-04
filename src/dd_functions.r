@@ -266,78 +266,56 @@ run_dd <- function(flankodat, metadata, geoCol='city', geneCol='gene', min_copie
 
 
 # Run full analysis pipeline for ResFinder and Functional ARG groups
-run_all <- function(flankodat, metadata, geoCol='city', geneCol='gene', min_copies_per_arg=1, min_args_per_site=100, xlim=c(NA,NA), verbose=0, title=NA){
+run_all <- function(flankodat, metadata, groupCol='group', geoCol='city', geneCol='gene', min_copies_per_arg=1, min_args_per_site=100, xlim=c(NA,NA), verbose=0, title=NA){
 
-    # Subset ResFinder data
-    rf.data <- flankodat %>% filter(group == 'ResFinder')
-    if(verbose > 0){
-        print(paste("ResFinder data input:", nrow(rf.data), ncol(rf.data)))
+    all_dists <- list()
+    all_results <- list()
+
+    groups <- unique(flankodat[[groupCol]])
+    for (grp in groups){
+
+        # Subset data for the current group
+        grp.data <- flankodat %>% filter(group == grp)
+        
+        if(verbose>0){
+            print(paste("Processing", grp, ":", nrow(grp.data), "x", ncol(grp.data)))
+        }
+
+        #  Run distance analyses
+        grp.res <- run_dd(
+            flankodat = grp.data,
+            metadata = metadata,
+            geoCol = geoCol,
+            geneCol = geneCol,
+            min_copies_per_arg = min_copies_per_arg,
+            min_args_per_site = min_args_per_site,
+            verbose = verbose > 1
+        )
+        all_results[[paste0(grp, ".res")]] <- grp.res
+
+        # Extract and annotate distance matrix
+        if(!is.null(grp.res$dists)){
+            grp.dists <- grp.res$dists %>% mutate(group = grp)
+
+            # Annotate with region data
+            grp.dists <- grp.dists %>% 
+                left_join(metadata %>% select(all_of(geoCol), Region) %>% distinct(), by = c("area1" = geoCol)) %>%
+                left_join(metadata %>% select(all_of(geoCol), Region) %>% distinct(), by = c("area2" = geoCol), suffix=c(".1", ".2")) %>%
+                na.omit()
+
+            all_dists[[grp]] <- grp.dists
+
+        }
     }
 
-    # Run distance analysis for ResFinder
-    rf.res <- run_dd(
-        flankodat = rf.data,
-        metadata = metadata,
-        geoCol = geoCol,
-        geneCol = geneCol,
-        min_copies_per_arg = min_copies_per_arg,
-        min_args_per_site = min_args_per_site,
-        verbose=verbose > 1
-    )
+    # Combine all distance matrices
+    combined_dists <- bind_rows(all_dists)
 
-    # Subset Functional data
-    func.data <- flankodat %>% filter(group == 'Functional')
-    if(verbose > 0){print(paste("Functional data input:", nrow(func.data), ncol(func.data)))}
+    # Return results
+    res <- list(dists = combined_dists, results = all_results)
+    return(res)
+} 
 
-    # Run distance analysis for Functional group
-    func.res <- run_dd(
-        flankodat = flankodat %>% filter(group == 'Functional'),
-        metadata = metadata,
-        geoCol = geoCol,
-        geneCol = geneCol,
-        min_copies_per_arg = min_copies_per_arg,
-        min_args_per_site = min_args_per_site
-    )
-
-    # Extract distance matrices
-    res.dists <- rf.res$dists 
-    func.dists <- func.res$dists
-    if(verbose > 0){
-        print(paste("ResFinder distance matrix:", nrow(res.dists), ncol(res.dists)))
-        print(paste("Functional distance matrix:", nrow(func.dists), ncol(func.dists)))
-    }
-
-    # Add group labels
-    if(!is.null(res.dists)){res.dists <- res.dists %>% mutate(group = 'ResFinder') }
-    if(!is.null(func.dists)){func.dists <- func.dists %>% mutate(group = 'Functional') }
-
-    # Combine distance matrices
-    dists <- rbind(res.dists, func.dists) 
-    
-    # Annotate with region metadata
-    if(!is.null(dists)){
-        dists <- dists %>%
-        left_join(
-            metadata %>% select(all_of(geoCol), Region) %>% distinct(.),
-            by = c("area1" = geoCol)
-        ) %>%
-        left_join(
-            metadata %>% select(all_of(geoCol), Region) %>% distinct(.),
-            by = c("area2" = geoCol),
-            suffix=c(".1", ".2")
-        ) %>%
-        na.omit
-
-    }
-    
-    # Collect results
-    allRes <- c()
-    allRes$dists  <- dists
-    allRes$rf.res <- rf.res
-    allRes$func.res <- func.res
-
-    return(allRes)   
-}
 
 # Function to extract model summary statistics
 extract_model_summary <- function(model, x, z="Independent",decimals=2) {
@@ -408,7 +386,24 @@ run_mantel <- function(data, x, y, g1='area1', g2='area2', decimals=2, return_st
     return(list("table" = results, "s" = results.string))
 }
 
+pretty_eq <- function(slope, intercept, r2, zz){
+    
+    # Determine the sign to use in the equation based on the intercept
+    if(intercept < 0){sign="-"}else{sign='+'}
 
+    # Construct the equation part with italic formatting for y
+    eq = paste0("italic(y) == ", slope, "*x",sign, abs(intercept))
+
+    
+    # Construct the R-squared part with italic formatting
+    r2 = paste0("italic(R)^2 == ", r2)
+
+    
+    # Combine label (zz), equation, and R-squared into a full expression string
+    # This will be parsed later in ggplot2 to display formatted math
+    full_eq = paste0("paste(", "'", zz, ": ', ", eq, ",', ',", r2, ")")
+    return(full_eq)
+}
 
 build_lms <- function(data, x, y, z, decimals=2, palette=NA, yadj=-.1, ymin=NA, ymax=NA, xlabel=NA, ylabel=NA, title=NA, col_title=NA, calc_mantel=FALSE){
     ym <-  str_replace(y, "similarity", "dissimilarity")
@@ -437,11 +432,12 @@ build_lms <- function(data, x, y, z, decimals=2, palette=NA, yadj=-.1, ymin=NA, 
     fittedLM <- lm(formula, data)
 
     # Create the equation string for the overall model
-    eq0 = paste0(
-        "y = ", signif(coef(fittedLM)[x], decimals), "*x", 
-        " + ", signif(coef(fittedLM)['(Intercept)'], decimals), 
-        "\nadj.R2 = ", signif(summary(fittedLM)$adj.r.squared, decimals)
-        )
+    equations[['no_scale']] <- pretty_eq(
+        slope = signif(coef(fittedLM)[x], decimals),
+        intercept = signif(coef(fittedLM)['(Intercept)'], decimals),
+        r2 = signif(summary(fittedLM)$adj.r.squared, decimals),
+        zz = 'No scale'
+    )
 
     # Extract summary statistics for the overall model
     fittedLMs <- extract_model_summary(fittedLM, decimals=decimals)
@@ -481,16 +477,13 @@ build_lms <- function(data, x, y, z, decimals=2, palette=NA, yadj=-.1, ymin=NA, 
 
         # Create the equation string for the subset model
         coeffs <- coef(zLM)
-        eq = paste0(
-            #"y = ", round(coeffs[x], 2), "*x", " + ", 
-            #round(coeffs['(Intercept)'],2), 
-            "adj.R2 = ", signif(summary(zLM)$adj.r.squared, decimals)
-            )
 
-        eq2 = paste0(
-            "y = ", signif(coeffs[x], decimals), "*x", " + ", signif(coeffs['(Intercept)'],decimals), 
-            "\nadj.R2 = ", signif(summary(zLM)$adj.r.squared, decimals)
-            )
+        equations[[zz]] <- pretty_eq(
+            slope =  signif(coeffs[x], decimals),
+            intercept =  signif(coeffs['(Intercept)'],decimals),
+            r2 = signif(summary(zLM)$adj.r.squared, decimals),
+            zz = zz
+        )
 
         # Calculate 95% confidence intervals for predictions
         ci95 <- subset.data %>%
@@ -537,7 +530,7 @@ build_lms <- function(data, x, y, z, decimals=2, palette=NA, yadj=-.1, ymin=NA, 
 
         # Get pairwise comparisons of trends
         lmz.lst <- emmeans::emtrends(fittedLMz, z, var=x)
-        pairs.df <- as.data.frame(pairs(lmz.lst, adjust = "tukey")))
+        pairs.df <- as.data.frame(pairs(lmz.lst, adjust = "tukey"))
 
         # Create a bar plot for pairwise comparisons
         p.bar <- pairs.df %>%
@@ -638,10 +631,29 @@ build_lms <- function(data, x, y, z, decimals=2, palette=NA, yadj=-.1, ymin=NA, 
             "scale.independent.model" = fittedLM, 
             "scale.dependent.model" = fittedLMz, 
             "pairs" = pairs.df, 
-            "fit.summaries" = fittedLMs
+            "fit.summaries" = fittedLMs,
+            "equations" = equations
         )
     if(calc_mantel){
         all.results$mantel.results <- mantel.tabular
         }
     return(all.results)
+}
+
+add_plot_equations <- function(p, eqns, xmin, ymin, jitter=10, size = 3){
+
+    n = length(eqns)
+    for(i in 1:n){
+        y_pos = ymin + (i-1)/jitter
+        p <- p + annotate(
+            "text",
+            x = xmin,
+            y = y_pos,
+            label = rev(eqns)[[i]],
+            parse = T,
+            hjust = 0,
+            size = size
+        )
+    }
+    return(p)
 }
